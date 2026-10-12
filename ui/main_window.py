@@ -2,10 +2,13 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
                              QListWidget, QListWidgetItem, QLabel, QPushButton, 
                              QProgressBar, QLineEdit, QDialog, QFormLayout, QMessageBox)
 from PyQt6.QtCore import Qt
+import secrets
+import string
 
 from .styles import DARK_THEME_STYLE
-from .threads import DataLoaderWorkerThread, AccountDetailsWorkerThread, AddAccountWorkerThread
+from .threads import DataLoaderWorkerThread, AccountDetailsWorkerThread, AddAccountWorkerThread, UpdatePasswordWorkerThread
 from database.repository import AccountRepository
+from services.auditor import PasswordAuditor
 
 class AccountListWidgetItem(QWidget):
     def __init__(self, account_id: int, title: str, parent_window):
@@ -74,7 +77,6 @@ class AccountListWidgetItem(QWidget):
         
         yes_btn = box.addButton("Yes", QMessageBox.ButtonRole.YesRole)
         no_btn = box.addButton("No", QMessageBox.ButtonRole.NoRole)
-        
         box.exec()
         
         if box.clickedButton() == yes_btn:
@@ -86,10 +88,12 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("GuardPass — Password Manager")
-        self.resize(900, 550)
+        self.resize(950, 600)
         self.setStyleSheet(DARK_THEME_STYLE)
         
         self.all_cached_accounts = []
+        self.current_selected_account_id = None
+        self.generated_secure_password = ""
         self.init_ui()
 
     def init_ui(self):
@@ -100,16 +104,11 @@ class MainWindow(QMainWindow):
         main_layout.setContentsMargins(15, 15, 15, 15)
         main_layout.setSpacing(15)
 
-        # left panel
         left_panel = QVBoxLayout()
-        
-        search_layout = QHBoxLayout()
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("Search by service name...")
         self.search_input.textChanged.connect(self.filter_accounts)
-        search_layout.addWidget(self.search_input)
-        
-        left_panel.addLayout(search_layout)
+        left_panel.addWidget(self.search_input)
 
         self.account_list = QListWidget()
         self.account_list.currentRowChanged.connect(self.load_account_details)
@@ -121,14 +120,12 @@ class MainWindow(QMainWindow):
         
         main_layout.addLayout(left_panel, stretch=14)
 
-        # right panel
         right_panel = QVBoxLayout()
-        right_panel.setSpacing(20)
+        right_panel.setSpacing(15)
 
-        # audit block
         audit_box = QVBoxLayout()
         audit_title = QLabel("Database Security Audit")
-        audit_title.setStyleSheet("font-weight: bold; color: #726DA8;") # renovate
+        audit_title.setObjectName("titleLabel")
         audit_box.addWidget(audit_title)
         
         self.progress_label = QLabel("Password Strength: 100%")
@@ -139,7 +136,7 @@ class MainWindow(QMainWindow):
         audit_box.addWidget(self.progress_bar)
         
         self.audit_details_label = QLabel("Total accounts: 0")
-        self.audit_details_label.setStyleSheet("color: #888888; font-size: 12px;") # renovate
+        self.audit_details_label.setStyleSheet("color: #555555; font-size: 12px;")
         audit_box.addWidget(self.audit_details_label)
         right_panel.addLayout(audit_box)
 
@@ -150,11 +147,46 @@ class MainWindow(QMainWindow):
         
         self.lbl_login = QLabel("Login: —")
         self.lbl_password = QLabel("Password: —")
-        
         details_box.addWidget(self.lbl_login)
         details_box.addWidget(self.lbl_password)
-        right_panel.addLayout(details_box)
         
+        self.lbl_warning = QLabel("Warning: This password is weak and vulnerable!")
+        self.lbl_warning.setStyleSheet("font-weight: bold; margin-top: 5px;")
+        self.lbl_warning.hide()
+        details_box.addWidget(self.lbl_warning)
+        
+        self.btn_trigger_generator = QPushButton("Generate Secure Password")
+        self.btn_trigger_generator.clicked.connect(self.start_password_generation_flow)
+        self.btn_trigger_generator.hide()
+        details_box.addWidget(self.btn_trigger_generator)
+        
+        self.generator_widget = QWidget()
+        gen_layout = QVBoxLayout(self.generator_widget)
+        gen_layout.setContentsMargins(0, 5, 0, 5)
+        
+        self.lbl_new_password_proposal = QLabel("Proposed secure password: —")
+        self.lbl_new_password_proposal.setStyleSheet("font-weight: bold; color: #726DA8; font-size: 15px;")
+        gen_layout.addWidget(self.lbl_new_password_proposal)
+        
+        choice_layout = QHBoxLayout()
+        self.btn_accept_pass = QPushButton("Accept new password")
+        self.btn_accept_pass.clicked.connect(self.accept_generated_password)
+        self.btn_reject_pass = QPushButton("Cancel")
+        self.btn_reject_pass.clicked.connect(self.hide_generator_flow)
+        self.btn_reject_pass.setObjectName("listDeleteButton")
+        
+        self.btn_regenerate_pass = QPushButton("Generate again")
+        self.btn_regenerate_pass.clicked.connect(self.generate_and_display_new_password)
+        
+        choice_layout.addWidget(self.btn_accept_pass)
+        choice_layout.addWidget(self.btn_regenerate_pass)
+        choice_layout.addWidget(self.btn_reject_pass)
+        gen_layout.addLayout(choice_layout)
+        
+        self.generator_widget.hide()
+        details_box.addWidget(self.generator_widget)
+        
+        right_panel.addLayout(details_box)
         right_panel.addStretch()
         main_layout.addLayout(right_panel, stretch=36)
 
@@ -175,11 +207,10 @@ class MainWindow(QMainWindow):
         self.progress_bar.setValue(int(audit["security_score"]))
         self.progress_label.setText(f"Password Strength: {int(audit['security_score'])}%")
         self.audit_details_label.setText(
-            f"Total Accounts: {audit['total_accounts']} | Weak: {audit['weak_passwords']} | Reused: {audit['reused_passwords']}"
+            f"Total Accounts: {audit['total_accounts']} | Weak (by 4 metrics): {audit['weak_passwords']} | Reused: {audit['reused_passwords']}"
         )
 
     def filter_accounts(self):
-        """Фильтрует список аккаунтов на основе введенного текста"""
         self.account_list.clear()
         search_query = self.search_input.text().lower().strip()
 
@@ -194,9 +225,12 @@ class MainWindow(QMainWindow):
             self.account_list.setItemWidget(item, row_widget)
             item.setData(Qt.ItemDataRole.UserRole, acc["id"])
 
+        self.hide_generator_flow()
         self.details_title.setText("Account Details: —")
         self.lbl_login.setText("Login: —")
         self.lbl_password.setText("Password: —")
+        self.lbl_warning.hide()
+        self.btn_trigger_generator.hide()
 
     def load_account_details(self, current_row: int):
         if current_row < 0:
@@ -205,15 +239,59 @@ class MainWindow(QMainWindow):
         if not item:
             return
             
-        db_id = item.data(Qt.ItemDataRole.UserRole)
-        self.details_thread = AccountDetailsWorkerThread(db_id)
+        self.current_selected_account_id = item.data(Qt.ItemDataRole.UserRole)
+
+        self.hide_generator_flow()
+        self.details_thread = AccountDetailsWorkerThread(self.current_selected_account_id)
         self.details_thread.details_ready.connect(self.on_details_ready)
         self.details_thread.start()
-
+    
     def on_details_ready(self, account: dict):
         self.details_title.setText(f"Account Details: {account['title']}")
         self.lbl_login.setText(f"Login: {account['decrypted_login']}")
-        self.lbl_password.setText(f"Password: {account['decrypted_password']}")
+        raw_password = account['decrypted_password']
+        self.lbl_password.setText(f"Password: {raw_password}")
+        if PasswordAuditor.check_if_password_is_weak(raw_password):
+            self.lbl_warning.show()
+            self.btn_trigger_generator.show()
+        else:
+            self.lbl_warning.hide()
+            self.btn_trigger_generator.hide()
+    
+    def start_password_generation_flow(self):
+        self.btn_trigger_generator.hide()
+        self.generator_widget.show()
+        self.generate_and_display_new_password()
+    
+    def generate_and_display_new_password(self):
+        alphabet = string.ascii_letters + string.digits + "!@#$%^&*()_+-="
+        while True:
+            candidate = "".join(secrets.choice(alphabet) for _ in range(14))
+            if not PasswordAuditor.check_if_password_is_weak(candidate):
+                self.generated_secure_password = candidate
+                break
+        self.lbl_new_password_proposal.setText(f"Proposed secure password: {self.generated_secure_password}")
+
+    def accept_generated_password(self):
+        if not self.current_selected_account_id:
+            return
+        self.update_thread = UpdatePasswordWorkerThread(
+            self.current_selected_account_id,
+            self.generated_secure_password,
+        )
+        self.update_thread.update_success.connect(self.on_password_update_success)
+        self.update_thread.start()
+
+    def on_password_update_success(self):
+        self.hide_generator_flow()
+        QMessageBox.information(self, "Success", "Password updated and safely database-stored!")
+        self.refresh_data()
+
+    def hide_generator_flow(self):
+        self.generator_widget.hide()
+        self.generated_secure_password = ""
+        if self.lbl_warning.isVisible():
+            self.btn_trigger_generator.show()
 
     def open_add_dialog(self):
         dialog = QDialog(self)
@@ -224,7 +302,6 @@ class MainWindow(QMainWindow):
         inp_title = QLineEdit()
         inp_login = QLineEdit()
         inp_pass = QLineEdit()
-
         form.addRow("Service Name:", inp_title)
         form.addRow("Login / Email:", inp_login)
         form.addRow("Password:", inp_pass)
@@ -236,13 +313,12 @@ class MainWindow(QMainWindow):
             title = inp_title.text().strip()
             login = inp_login.text().strip()
             password = inp_pass.text().strip()
-
             if not title or not login or not password:
                 QMessageBox.warning(dialog, "Error", "All fields must be filled!")
                 return
-
             self.add_thread = AddAccountWorkerThread(title, "", login, password)
             self.add_thread.save_success.connect(lambda: [dialog.accept(), self.refresh_data()])
             self.add_thread.start()
-            btn_save.clicked.connect(save_action)
-            dialog.exec()
+
+        btn_save.clicked.connect(save_action)
+        dialog.exec()

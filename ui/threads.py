@@ -84,3 +84,29 @@ class AddAccountWorkerThread(QThread):
         )
         
         self.save_success.emit()
+        
+class UpdatePasswordWorkerThread(QThread):
+    update_success = pyqtSignal()
+
+    def __init__(self, account_id: int, new_password: str):
+        super().__init__()
+        self.account_id = account_id
+        self.new_password = new_password
+
+    def run(self):
+        import hashlib
+        crypto_key = AuthService.get_crypto_key()
+        
+        encrypted_password = encrypt_data(self.new_password, crypto_key)
+        md5_hash = hashlib.md5(self.new_password.encode()).hexdigest()
+        pass_len = len(self.new_password)
+        
+        from database.connection import get_db_connection
+        with get_db_connection() as conn:
+            conn.execute(
+                """UPDATE accounts 
+                   SET encrypted_password = ?, password_length = ?, password_hash_md5 = ?, updated_at = CURRENT_TIMESTAMP
+                   WHERE id = ?;""",
+                (encrypted_password, pass_len, md5_hash, self.account_id)
+            )
+        self.update_success.emit()

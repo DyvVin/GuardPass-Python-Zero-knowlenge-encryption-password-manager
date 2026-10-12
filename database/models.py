@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS accounts (
     login TEXT NOT NULL,
     encrypted_password TEXT NOT NULL,
     password_length INTEGER NOT NULL,
-    password_hash_md5 TEXT NOT NULL,  -- Нужен для быстрого поиска дубликатов SQL GROUP BY
+    password_hash_md5 TEXT NOT NULL,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
