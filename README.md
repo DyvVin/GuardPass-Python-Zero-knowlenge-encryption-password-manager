@@ -75,18 +75,20 @@ guardpass/
 
 ---
 
-# Security Audit Score Algorithm (will be renovated in future updates)
+# Security Audit Score Algorithm
 
 The security audit system calculates an overall security index score starting at 100% (perfect safety), for each structural weakness found, penalties are deducted according to the following weight rules:
 
-1. Weak Passwords Check: Credential containing fewer than 8 characters is flagged as a security flaw. **Penalty: -15 points per entry**
+1. Weak Passwords Check: Credential containing fewer than 8 characters, noy containing didgits, not containing any special characters, containing only uppercase or only lowercase letters is flagged as a security flaw. **Penalty: -15 points per entry**
 2. Reused Passwords Check: Same passwords get detected by being flagged via the index MD5 grouping check. **Penalty: -10 points per entry**
 
 Evaluation logic:
 ```python
-penalty = (weak_passwords * 15) + (reused_passwords * 10)
-security_score = max(0, 100 - penalty)
+penalty = (metrics["weak_passwords"] * 15) + (metrics["reused_passwords"] * 10)
+metrics["security_score"] = max(0, 100 - penalty)
 ```
+
+After detecting a "weak" password the programm will suggest to generate a new one in the "service" panel which user then will be able to set automatically.
 
 ---
 
@@ -103,9 +105,7 @@ Install core PyOt6 and cryptography libraries using commands below and execute G
 
 # Future features
 
-1. Restructured audit logic: add capital letters, special symbols and didgits criteria.
-2. Field on first program boot with which user can choose .db file generation path (or leave %AppData% as defualt).
-3. Master-password restoration function via Google account.
-4. Built-in secure password generator to suggest a replacemnt of "weak" passwords.
-5. More graphical indicators to optimize app usage.
-6. Final code refractoring and optimization.
+1. Field on first program boot with which user can choose .db file generation path (or leave %AppData% as defualt).
+2. Master-password restoration function via Google account.
+3. More graphical indicators to optimize app usage.
+4. Final code refractoring and optimization.
