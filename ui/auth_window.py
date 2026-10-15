@@ -1,7 +1,7 @@
 from PyQt6.QtWidgets import QDialog, QVBoxLayout, QLabel, QLineEdit, QPushButton, QHBoxLayout, QMessageBox
 from PyQt6.QtCore import pyqtSignal
 
-from .styles import DARK_THEME_STYLE
+from .styles import MAIN_THEME_STYLE
 from .threads import AuthWorkerThread
 
 class AuthWindow(QDialog):
@@ -11,7 +11,7 @@ class AuthWindow(QDialog):
         super().__init__()
         self.setWindowTitle("GuardPass — Authorization")
         self.setFixedSize(360, 240)
-        self.setStyleSheet(DARK_THEME_STYLE)
+        self.setStyleSheet(MAIN_THEME_STYLE)
         self.init_ui()
 
     def init_ui(self):

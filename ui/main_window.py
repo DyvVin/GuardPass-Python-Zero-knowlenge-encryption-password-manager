@@ -2,10 +2,11 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
                              QListWidget, QListWidgetItem, QLabel, QPushButton, 
                              QProgressBar, QLineEdit, QDialog, QFormLayout, QMessageBox)
 from PyQt6.QtCore import Qt
+import sys
 import secrets
 import string
 
-from .styles import DARK_THEME_STYLE
+from .styles import MAIN_THEME_STYLE
 from .threads import DataLoaderWorkerThread, AccountDetailsWorkerThread, AddAccountWorkerThread, UpdatePasswordWorkerThread
 from database.repository import AccountRepository
 from services.auditor import PasswordAuditor
@@ -19,6 +20,9 @@ class AccountListWidgetItem(QWidget):
         self.init_ui()
 
     def init_ui(self):
+        import os
+        from PyQt6.QtGui import QPixmap
+        
         layout = QHBoxLayout(self)
         layout.setContentsMargins(5, 5, 5, 5)
         layout.setSpacing(5)
@@ -26,12 +30,41 @@ class AccountListWidgetItem(QWidget):
         self.label = QLabel(self.title)
         layout.addWidget(self.label, stretch=1)
 
+        try:
+            account_data = AccountRepository.get_account_by_id(self.account_id)
+            from services.auth_service import AuthService
+            from crypto.encryptor import decrypt_data
+            
+            crypto_key = AuthService.get_crypto_key()
+            plain_password = decrypt_data(account_data["encrypted_password"], crypto_key)
+            
+            if PasswordAuditor.check_if_password_is_weak(plain_password):
+                def resource_path(relative_path):
+                    try:
+                        base_path = sys._MEIPASS
+                    except Exception:
+                        base_path = os.path.abspath(".")
+
+                    return os.path.join(base_path, relative_path)
+                icon_path = resource_path("icons/attention.ico")
+                
+                if os.path.exists(icon_path):
+                    lbl_icon = QLabel()
+                    pixmap = QPixmap(icon_path)
+                    lbl_icon.setPixmap(pixmap.scaled(16, 16, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+                    lbl_icon.setToolTip("Warning: This account uses a weak password!")
+                    layout.addWidget(lbl_icon)
+        except Exception:
+            pass
+
+        # Кнопка Изменить (Перо)
         self.btn_edit = QPushButton("Edit")
         self.btn_edit.setObjectName("listActionButton")
         self.btn_edit.setToolTip("Edit account")
         self.btn_edit.clicked.connect(self.on_edit_clicked)
         layout.addWidget(self.btn_edit)
 
+        # Кнопка Удалить (Корзина)
         self.btn_delete = QPushButton("Wipe")
         self.btn_delete.setObjectName("listActionButton")
         self.btn_delete.setToolTip("Delete account")
@@ -41,7 +74,7 @@ class AccountListWidgetItem(QWidget):
     def on_edit_clicked(self):
         dialog = QDialog(self.parent_window)
         dialog.setWindowTitle(f"Edit {self.title}")
-        dialog.setStyleSheet(DARK_THEME_STYLE)
+        dialog.setStyleSheet(MAIN_THEME_STYLE)
         form = QFormLayout(dialog)
         
         inp_title = QLineEdit(self.title)
@@ -73,7 +106,7 @@ class AccountListWidgetItem(QWidget):
         box.setIcon(QMessageBox.Icon.Question)
         box.setWindowTitle("Confirmation")
         box.setText(f"Are you sure you want to delete the account details for {self.title}?")
-        box.setStyleSheet(DARK_THEME_STYLE)
+        box.setStyleSheet(MAIN_THEME_STYLE)
         
         yes_btn = box.addButton("Yes", QMessageBox.ButtonRole.YesRole)
         no_btn = box.addButton("No", QMessageBox.ButtonRole.NoRole)
@@ -84,12 +117,13 @@ class AccountListWidgetItem(QWidget):
             self.parent_window.refresh_data()
 
 
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("GuardPass — Password Manager")
         self.resize(950, 600)
-        self.setStyleSheet(DARK_THEME_STYLE)
+        self.setStyleSheet(MAIN_THEME_STYLE)
         
         self.all_cached_accounts = []
         self.current_selected_account_id = None
@@ -296,7 +330,7 @@ class MainWindow(QMainWindow):
     def open_add_dialog(self):
         dialog = QDialog(self)
         dialog.setWindowTitle("Add Account")
-        dialog.setStyleSheet(DARK_THEME_STYLE)
+        dialog.setStyleSheet(MAIN_THEME_STYLE)
         form = QFormLayout(dialog)
 
         inp_title = QLineEdit()

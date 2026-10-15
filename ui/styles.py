@@ -1,4 +1,4 @@
-DARK_THEME_STYLE = """
+MAIN_THEME_STYLE = """
     QMainWindow, QDialog, QMessageBox {
         background-color: #F8F9FA;  /* windows */
     }
